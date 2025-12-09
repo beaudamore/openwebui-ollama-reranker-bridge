@@ -5,15 +5,12 @@ services:
     image: ghcr.io/beaudamore/openwebui-ollama-reranker-bridge:latest
     container_name: rerank-bridge
     restart: unless-stopped
-    env_file:
-      - .env
     environment:
-      # Set a fixed host IP for Ollama so the container is network-agnostic.
-      # You can override this in .env instead of here.
-      - OLLAMA_BASE_URL=http://localhost:11434
+      # On Windows/Mac with Docker Desktop, use host.docker.internal to reach the host
+      # On Linux, use host network or set this to the actual Ollama server IP
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
       - RERANK_MODE=embeddings
       - RERANK_PORT=8000
-      # Do NOT put secrets here; put RERANK_BRIDGE_API_KEY and OLLAMA_API_KEY in .env
     ports:
       - "8000:8000"
     healthcheck:
