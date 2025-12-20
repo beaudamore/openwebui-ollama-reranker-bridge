@@ -37,10 +37,17 @@ Deploy via GitHub Actions → GHCR → Portainer (recommended for production)
 1. Create a new repo named `OpenWebUI-Ollama-ReRanker-Bridge` and push these files.
 2. In repo Settings → Secrets → Actions add:
    - CR_PAT (or use GITHUB_TOKEN automatically for GHCR; see workflow notes)
-3. Push to main. The workflow will build and push images to `ghcr.io/<github-username>/openwebui-ollama-reranker-bridge:latest`
+3. Push to main (or manually run the workflow). The workflow builds multi-arch (amd64+arm64) and pushes to:
+  - `ghcr.io/<github-username>/openwebui-ollama-reranker-bridge:latest`
+  - `ghcr.io/<github-username>/openwebui-ollama-reranker-bridge:<git-sha>`
 4. In Portainer create a stack referencing the pushed image:
-   image: ghcr.io/<your-user>/openwebui-ollama-reranker-bridge:latest
+  image: ghcr.io/<your-user>/openwebui-ollama-reranker-bridge:latest
 5. Ensure the bridge container can reach your Ollama instance (same Docker network or use host IP).
+
+Apple Silicon (M1/M2) / ARM64 notes
+- The published image is now built for linux/amd64 and linux/arm64 via the GitHub Actions workflow. No `platform:` override is needed on macOS or Linux ARM.
+- If you build locally instead of using GHCR, run a multi-arch build with buildx, e.g.:
+  docker buildx build --platform linux/amd64,linux/arm64 -t ghcr.io/<user>/openwebui-ollama-reranker-bridge:latest --push .
 
 OpenWebUI Admin settings
 - Reranking Engine: External
