@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("rerank-bridge")
 
 # Configuration via environment variables
-OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://10.5.10.190:11434")
 OLLAMA_API_KEY = os.environ.get("OLLAMA_API_KEY", "")
 BRIDGE_API_KEY = os.environ.get("RERANK_BRIDGE_API_KEY", "")
 RERANK_MODE = os.environ.get("RERANK_MODE", "embeddings")  # embeddings | generate
@@ -95,12 +95,12 @@ async def rerank(request: Request, body: RerankRequest, authorization: Optional[
         texts = [query] + docs
         try:
             # Use /api/embed with batch processing - send all texts in one request
-            log.info(f"Sending batch embedding request for {len(texts)} texts to Ollama: {OLLAMA_BASE_URL}/api/embed")
+            log.info(f"Sending batch embedding request for {len(texts)} texts to Ollama: {OLLAMA_BASE_URL}/ollama/api/embeddings")
             payload = {"model": model, "input": texts}
             log.debug(f"Payload: {payload}")
             
             try:
-                r = requests.post(f"{OLLAMA_BASE_URL}/api/embed", json=payload, headers=_headers_for_ollama(), timeout=TIMEOUT)
+                r = requests.post(f"{OLLAMA_BASE_URL}/api/embeddings", json=payload, headers=_headers_for_ollama(), timeout=TIMEOUT)
                 log.info(f"Response status: {r.status_code}")
             except Exception as req_err:
                 log.error(f"Request failed: {req_err}")
