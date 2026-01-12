@@ -9,7 +9,7 @@ services:
     environment:
       # On Windows/Mac with Docker Desktop, use host.docker.internal to reach the host
       # On Linux, use host network or set this to the actual Ollama server IP
-      - OLLAMA_BASE_URL=http://localhost11434
+      - OLLAMA_BASE_URL=http://localhost:11434
       - RERANK_MODE=embeddings
       - RERANK_PORT=5600
     ports:
