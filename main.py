@@ -14,11 +14,11 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("rerank-bridge")
 
 # Configuration via environment variables
-OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://10.5.10.190:11434")
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
 OLLAMA_API_KEY = os.environ.get("OLLAMA_API_KEY", "")
 BRIDGE_API_KEY = os.environ.get("RERANK_BRIDGE_API_KEY", "")
 RERANK_MODE = os.environ.get("RERANK_MODE", "embeddings")  # embeddings | generate
-PORT = int(os.environ.get("RERANK_PORT", "8000"))
+PORT = int(os.environ.get("RERANK_PORT", "5600"))
 TIMEOUT = int(os.environ.get("RERANK_TIMEOUT", "30"))
 
 app = FastAPI(title="OpenWebUI ↔ Ollama Rerank Bridge")
@@ -53,28 +53,6 @@ def _normalize_scores(scores: List[float]) -> List[float]:
         # If all equal, produce 1.0 for the max and scaled otherwise
         return [1.0 if s == s_max else 0.0 for s in scores]
     return [(s - s_min) / (s_max - s_min) for s in scores]
-
-def _extract_embeddings_from_ollama_response(data: Any):
-    # Try common response shapes
-    log.debug(f"Extracting embeddings from response: {type(data)}")
-    if isinstance(data, dict):
-        log.debug(f"Response is dict with keys: {data.keys()}")
-        if "embeddings" in data:
-            log.debug(f"Found 'embeddings' key, returning {len(data['embeddings'])} embeddings")
-            return data["embeddings"]
-        if "data" in data and isinstance(data["data"], list):
-            out = []
-            for item in data["data"]:
-                if isinstance(item, dict) and "embedding" in item:
-                    out.append(item["embedding"])
-            if out:
-                log.debug(f"Found 'data' key with {len(out)} embeddings")
-                return out
-    if isinstance(data, list):
-        log.debug(f"Response is list with {len(data)} items")
-        return data
-    log.error(f"Unexpected embeddings response shape: {data}")
-    raise ValueError("Unexpected embeddings response shape from Ollama")
 
 @app.post("/v1/rerank")
 async def rerank(request: Request, body: RerankRequest, authorization: Optional[str] = Header(None)):
