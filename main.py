@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("rerank-bridge")
 
 # Configuration via environment variables
-OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_API_KEY = os.environ.get("OLLAMA_API_KEY", "")
 BRIDGE_API_KEY = os.environ.get("RERANK_BRIDGE_API_KEY", "")
 RERANK_MODE = os.environ.get("RERANK_MODE", "embeddings")  # embeddings | generate
@@ -54,6 +54,11 @@ def _normalize_scores(scores: List[float]) -> List[float]:
         return [1.0 if s == s_max else 0.0 for s in scores]
     return [(s - s_min) / (s_max - s_min) for s in scores]
 
+def _fallback_results(docs: List[str], top_n: int) -> dict:
+    """Return docs in original order with descending scores as fallback."""
+    results = [{"index": i, "relevance_score": 1.0 - (i / len(docs))} for i in range(len(docs))]
+    return {"results": results[:top_n]}
+
 @app.post("/v1/rerank")
 async def rerank(request: Request, body: RerankRequest, authorization: Optional[str] = Header(None)):
     # Optional API key enforcement
@@ -66,19 +71,19 @@ async def rerank(request: Request, body: RerankRequest, authorization: Optional[
     docs = body.documents
     top_n = body.top_n or len(docs)
 
-    log.info(f"Received rerank request: model={model}, query='{query}', docs={len(docs)}, top_n={top_n}")
+    log.info(f"Received rerank request: model={model}, query='{query[:50]}...', docs={len(docs)}, top_n={top_n}")
 
     if RERANK_MODE == "embeddings":
         # Embeddings mode: request embeddings for [query] + docs and compute cosines
         texts = [query] + docs
         try:
             # Use /api/embed with batch processing - send all texts in one request
-            log.info(f"Sending batch embedding request for {len(texts)} texts to Ollama: {OLLAMA_BASE_URL}/ollama/api/embeddings")
+            log.info(f"Sending batch embedding request for {len(texts)} texts to Ollama: {OLLAMA_BASE_URL}/ollama/api/embed")
             payload = {"model": model, "input": texts}
             log.debug(f"Payload: {payload}")
             
             try:
-                r = requests.post(f"{OLLAMA_BASE_URL}/api/embeddings", json=payload, headers=_headers_for_ollama(), timeout=TIMEOUT)
+                r = requests.post(f"{OLLAMA_BASE_URL}/api/embed", json=payload, headers=_headers_for_ollama(), timeout=TIMEOUT)
                 log.info(f"Response status: {r.status_code}")
             except Exception as req_err:
                 log.error(f"Request failed: {req_err}")
@@ -113,44 +118,46 @@ async def rerank(request: Request, body: RerankRequest, authorization: Optional[
             results_sorted = sorted(results, key=lambda x: x["relevance_score"], reverse=True)[:top_n]
             log.info(f"Rerank successful. Returning {len(results_sorted)} results.")
             return {"results": results_sorted}
-        except HTTPException:
-            raise
-        except Exception as e:
-            log.exception("Error calling Ollama embeddings")
-            raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+        except Exception:
+            log.exception("Error in embeddings mode, returning original order")
+            return _fallback_results(docs, top_n)
 
     elif RERANK_MODE == "generate":
         # Generate mode: call Ollama generate API with a prompt to return a numeric score for each doc.
-        results = []
-        for i, doc in enumerate(docs):
-            prompt = (
-                f"Rate the relevance of the document to the query on a scale 0.0-1.0.\n\n"
-                f"Query: {query}\n\nDocument: {doc}\n\n"
-                f"Respond with a single JSON object exactly: {{\"index\": {i}, \"relevance_score\": <score>}}"
-            )
-            payload = {"model": model, "prompt": prompt, "stream": False}
-            try:
-                r = requests.post(f"{OLLAMA_BASE_URL}/api/generate", json=payload, headers=_headers_for_ollama(), timeout=TIMEOUT)
-                r.raise_for_status()
-                data = r.json()
-                out_text = ""
-                if isinstance(data, dict):
-                    if "text" in data:
-                        out_text = data["text"]
-                    elif "choices" in data and isinstance(data["choices"], list) and "text" in data["choices"][0]:
-                        out_text = data["choices"][0]["text"]
-                    elif "results" in data and isinstance(data["results"], list) and "content" in data["results"][0]:
-                        out_text = data["results"][0]["content"]
-                if not out_text:
-                    out_text = json.dumps(data)
-                m = re.search(r"([0-1](?:\.\d+)?|\d\.\d+)", out_text)
-                score = float(m.group(0)) if m else 0.0
-                results.append({"index": i, "relevance_score": score})
-            except Exception as e:
-                log.exception("Error calling Ollama generate")
-                results.append({"index": i, "relevance_score": 0.0})
-        results_sorted = sorted(results, key=lambda x: x["relevance_score"], reverse=True)[:top_n]
-        return {"results": results_sorted}
+        try:
+            results = []
+            for i, doc in enumerate(docs):
+                prompt = (
+                    f"Rate the relevance of the document to the query on a scale 0.0-1.0.\n\n"
+                    f"Query: {query}\n\nDocument: {doc}\n\n"
+                    f"Respond with a single JSON object exactly: {{\"index\": {i}, \"relevance_score\": <score>}}"
+                )
+                payload = {"model": model, "prompt": prompt, "stream": False}
+                try:
+                    r = requests.post(f"{OLLAMA_BASE_URL}/api/generate", json=payload, headers=_headers_for_ollama(), timeout=TIMEOUT)
+                    r.raise_for_status()
+                    data = r.json()
+                    out_text = ""
+                    if isinstance(data, dict):
+                        if "text" in data:
+                            out_text = data["text"]
+                        elif "choices" in data and isinstance(data["choices"], list) and "text" in data["choices"][0]:
+                            out_text = data["choices"][0]["text"]
+                        elif "results" in data and isinstance(data["results"], list) and "content" in data["results"][0]:
+                            out_text = data["results"][0]["content"]
+                    if not out_text:
+                        out_text = json.dumps(data)
+                    m = re.search(r"([0-1](?:\.\d+)?|\d\.\d+)", out_text)
+                    score = float(m.group(0)) if m else 0.0
+                    results.append({"index": i, "relevance_score": score})
+                except Exception:
+                    log.exception("Error calling Ollama generate for doc %d", i)
+                    results.append({"index": i, "relevance_score": 0.0})
+            results_sorted = sorted(results, key=lambda x: x["relevance_score"], reverse=True)[:top_n]
+            return {"results": results_sorted}
+        except Exception:
+            log.exception("Error in generate mode, returning original order")
+            return _fallback_results(docs, top_n)
     else:
         raise HTTPException(status_code=500, detail=f"Unknown RERANK_MODE: {RERANK_MODE}")
 

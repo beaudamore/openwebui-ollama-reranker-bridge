@@ -5,14 +5,17 @@ services:
     image: ghcr.io/beaudamore/openwebui-ollama-reranker-bridge:latest
     container_name: rerank-bridge
     restart: unless-stopped
+    command: sh -c "uvicorn main:app --host 0.0.0.0 --port $${RERANK_PORT}"
     environment:
       # On Windows/Mac with Docker Desktop, use host.docker.internal to reach the host
       # On Linux, use host network or set this to the actual Ollama server IP
-      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - OLLAMA_BASE_URL=http://localhost11434
       - RERANK_MODE=embeddings
-      - RERANK_PORT=8000
+      - RERANK_PORT=5600
     ports:
-      - "8000:8000"
+      - "5600:5600"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - bridge_net
 
